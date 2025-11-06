@@ -42,4 +42,10 @@ RUN set -e \
 
 ENV TZ="America/Mexico_City"
 
-ENTRYPOINT ["/opt/sat-catalogos-populate/bin/sat-catalogos-update"]
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Default to running the full pipeline, but allow override
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["generate"]
