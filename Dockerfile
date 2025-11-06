@@ -46,6 +46,6 @@ ENV TZ="America/Mexico_City"
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Default to running the full pipeline, but allow override
+# Entrypoint handles one-time generation, then idles to avoid restart loops
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["generate"]
+CMD []
