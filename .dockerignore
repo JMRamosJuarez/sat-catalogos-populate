@@ -5,3 +5,4 @@
 !bin/
 !src/
 !composer.json
+!docker-entrypoint.sh
