@@ -1,0 +1,85 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use PhpCfdi\SatCatalogosPopulate\Commands\TerminalLogger;
+use PhpCfdi\SatCatalogosPopulate\Database\Repository;
+use PhpCfdi\SatCatalogosPopulate\Importers\Cfdi40Catalogs;
+use PhpCfdi\SatCatalogosPopulate\Importers\Cfdi40\Injectors\ProductosServicios;
+use PhpCfdi\SatCatalogosPopulate\Injectors;
+use PhpCfdi\SatCatalogosPopulate\Converters\XlsToCsvFolderConverter;
+
+require __DIR__ . '/../vendor/autoload.php';
+
+// Configuration
+$sourceFolder = $argv[1] ?? '/data/catalogs';
+$databasePath = $argv[2] ?? '/data/catalogos.sqlite3';
+$xlsFile = $sourceFolder . '/cfdi_40.xls';
+
+$logger = new TerminalLogger();
+
+// Check if database exists and table already has data
+$repository = new Repository($databasePath);
+$tableName = 'cfdi_40_productos_servicios';
+
+if ($repository->hasTable($tableName)) {
+    $recordCount = $repository->getRecordCount($tableName);
+    if ($recordCount > 0) {
+        $logger->info("Table {$tableName} already exists with {$recordCount} records. Skipping import.");
+        exit(0);
+    }
+}
+
+// Check if source file exists
+if (!file_exists($xlsFile)) {
+    $logger->error("Source file not found: {$xlsFile}");
+    exit(1);
+}
+
+$logger->info("Starting import of {$tableName} from {$xlsFile}...");
+
+// Create temporary CSV folder
+$csvFolder = sys_get_temp_dir() . '/sat-catalogos-' . uniqid();
+mkdir($csvFolder, 0755, true);
+
+try {
+    // Convert XLS to CSV
+    $logger->info("Converting XLS to CSV...");
+    $converter = new XlsToCsvFolderConverter();
+    $converter->convert($xlsFile, $csvFolder);
+    
+    // Create injector for only ProductosServicios
+    $csvFile = $csvFolder . '/c_ClaveProdServ.csv';
+    if (!file_exists($csvFile)) {
+        throw new RuntimeException("CSV file not found: {$csvFile}");
+    }
+    
+    $injector = new ProductosServicios($csvFile);
+    $injector->validate();
+    
+    // Import into database
+    $logger->info("Importing data into database...");
+    $repository->pdo()->beginTransaction();
+    $injector->inject($repository, $logger);
+    $repository->pdo()->commit();
+    
+    $recordCount = $repository->getRecordCount($tableName);
+    $logger->info("Import completed successfully! {$recordCount} records in {$tableName}.");
+    
+} catch (Throwable $e) {
+    if ($repository->pdo()->inTransaction()) {
+        $repository->pdo()->rollBack();
+    }
+    $logger->error("Error: " . $e->getMessage());
+    throw $e;
+} finally {
+    // Clean up CSV files
+    if (is_dir($csvFolder)) {
+        array_map('unlink', glob($csvFolder . '/*.csv') ?: []);
+        @rmdir($csvFolder);
+    }
+}
+
+exit(0);
+
