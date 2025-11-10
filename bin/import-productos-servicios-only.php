@@ -16,6 +16,7 @@ require __DIR__ . '/../vendor/autoload.php';
 $sourceFolder = $argv[1] ?? '/data/catalogs';
 $databasePath = $argv[2] ?? '/data/catalogos.sqlite3';
 $xlsFile = $sourceFolder . '/cfdi_40.xls';
+$csvFile = $sourceFolder . '/c_ClaveProdServ.csv'; // Pre-converted CSV (optional)
 $lockFile = dirname($databasePath) . '/.import_lock';
 $failureFile = dirname($databasePath) . '/.import_failed';
 
@@ -66,31 +67,48 @@ register_shutdown_function(function () use ($lockFile) {
     @unlink($lockFile);
 });
 
-// Check if source file exists
-if (!file_exists($xlsFile)) {
-    $logger->error("Source file not found: {$xlsFile}");
+// Check if pre-converted CSV exists (preferred - no memory-intensive conversion)
+$usePreConvertedCsv = false;
+$csvFolder = '';
+$finalCsvFile = '';
+
+if (file_exists($csvFile)) {
+    $logger->info("Found pre-converted CSV file. Using it directly (skipping XLS conversion).");
+    $usePreConvertedCsv = true;
+    $finalCsvFile = $csvFile;
+} elseif (file_exists($xlsFile)) {
+    $logger->info("XLS file found. Will convert to CSV (this may require significant memory).");
+    $usePreConvertedCsv = false;
+    // Create temporary CSV folder for conversion
+    $csvFolder = sys_get_temp_dir() . '/sat-catalogos-' . uniqid();
+    mkdir($csvFolder, 0755, true);
+} else {
+    $logger->error("Neither CSV nor XLS source file found!");
+    $logger->error("Expected one of:");
+    $logger->error("  - Pre-converted CSV: {$csvFile}");
+    $logger->error("  - XLS file: {$xlsFile}");
+    @unlink($lockFile);
     exit(1);
 }
 
-$logger->info("Starting import of {$tableName} from {$xlsFile}...");
-
-// Create temporary CSV folder
-$csvFolder = sys_get_temp_dir() . '/sat-catalogos-' . uniqid();
-mkdir($csvFolder, 0755, true);
+$logger->info("Starting import of {$tableName}...");
 
 try {
-    // Convert XLS to CSV
-    $logger->info("Converting XLS to CSV...");
-    $converter = new XlsToCsvFolderConverter();
-    $converter->convert($xlsFile, $csvFolder);
-    
-    // Create injector for only ProductosServicios
-    $csvFile = $csvFolder . '/c_ClaveProdServ.csv';
-    if (!file_exists($csvFile)) {
-        throw new RuntimeException("CSV file not found: {$csvFile}");
+    if (!$usePreConvertedCsv) {
+        // Convert XLS to CSV (memory-intensive - may fail with OOM)
+        $logger->info("Converting XLS to CSV (this may take a while and use significant memory)...");
+        $converter = new XlsToCsvFolderConverter();
+        $converter->convert($xlsFile, $csvFolder);
+        
+        // Get the converted CSV file
+        $finalCsvFile = $csvFolder . '/c_ClaveProdServ.csv';
+        if (!file_exists($finalCsvFile)) {
+            throw new RuntimeException("CSV file not found after conversion: {$finalCsvFile}");
+        }
     }
+    // If using pre-converted CSV, $finalCsvFile is already set above
     
-    $injector = new ProductosServicios($csvFile);
+    $injector = new ProductosServicios($finalCsvFile);
     $injector->validate();
     
     // Import into database
@@ -125,8 +143,8 @@ try {
     // Remove lock file
     @unlink($lockFile);
     
-    // Clean up CSV files
-    if (is_dir($csvFolder)) {
+    // Clean up temporary CSV files (only if we converted)
+    if (!$usePreConvertedCsv && is_dir($csvFolder)) {
         array_map('unlink', glob($csvFolder . '/*.csv') ?: []);
         @rmdir($csvFolder);
     }
