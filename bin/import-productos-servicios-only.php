@@ -16,8 +16,37 @@ require __DIR__ . '/../vendor/autoload.php';
 $sourceFolder = $argv[1] ?? '/data/catalogs';
 $databasePath = $argv[2] ?? '/data/catalogos.sqlite3';
 $xlsFile = $sourceFolder . '/cfdi_40.xls';
+$lockFile = dirname($databasePath) . '/.import_lock';
+$failureFile = dirname($databasePath) . '/.import_failed';
 
 $logger = new TerminalLogger();
+
+// Check for lock file (import in progress)
+if (file_exists($lockFile)) {
+    $lockAge = time() - filemtime($lockFile);
+    // If lock is older than 1 hour, assume previous process died
+    if ($lockAge > 3600) {
+        $logger->warning("Stale lock file found (older than 1 hour). Removing it.");
+        @unlink($lockFile);
+    } else {
+        $logger->error("Import already in progress (lock file exists). Exiting.");
+        exit(1);
+    }
+}
+
+// Check for recent failure (prevent immediate retries)
+if (file_exists($failureFile)) {
+    $failureAge = time() - filemtime($failureFile);
+    // If failure was less than 1 hour ago, don't retry
+    if ($failureAge < 3600) {
+        $logger->warning("Recent import failure detected (less than 1 hour ago). Skipping to prevent OOM issues.");
+        $logger->warning("To force retry, delete: {$failureFile}");
+        exit(1);
+    } else {
+        // Old failure, remove it and allow retry
+        @unlink($failureFile);
+    }
+}
 
 // Check if database exists and table already has data
 $repository = new Repository($databasePath);
@@ -30,6 +59,12 @@ if ($repository->hasTable($tableName)) {
         exit(0);
     }
 }
+
+// Create lock file
+file_put_contents($lockFile, date('c') . "\n" . getmypid() . "\n");
+register_shutdown_function(function () use ($lockFile) {
+    @unlink($lockFile);
+});
 
 // Check if source file exists
 if (!file_exists($xlsFile)) {
@@ -67,13 +102,29 @@ try {
     $recordCount = $repository->getRecordCount($tableName);
     $logger->info("Import completed successfully! {$recordCount} records in {$tableName}.");
     
+    // Remove failure file on success
+    @unlink($failureFile);
+    
 } catch (Throwable $e) {
     if ($repository->pdo()->inTransaction()) {
         $repository->pdo()->rollBack();
     }
+    
+    // Mark as failed (especially for OOM errors - exit code 137)
+    $exitCode = 1;
+    if (strpos($e->getMessage(), '137') !== false || strpos($e->getMessage(), 'SIGKILL') !== false) {
+        file_put_contents($failureFile, date('c') . "\n" . $e->getMessage() . "\n");
+        $logger->error("Import failed due to memory issue (OOM). Marked as failed to prevent immediate retry.");
+        $logger->error("The system likely ran out of memory during LibreOffice conversion.");
+        $logger->error("Wait at least 1 hour before retrying, or increase server resources.");
+    }
+    
     $logger->error("Error: " . $e->getMessage());
-    throw $e;
+    exit($exitCode);
 } finally {
+    // Remove lock file
+    @unlink($lockFile);
+    
     // Clean up CSV files
     if (is_dir($csvFolder)) {
         array_map('unlink', glob($csvFolder . '/*.csv') ?: []);
