@@ -1,6 +1,21 @@
-# Pre-Converting XLS to CSV Guide
+# Lightweight XLS to CSV Conversion
 
-Since your server has limited RAM (2GB), LibreOffice conversion can cause Out-of-Memory (OOM) errors. This guide shows how to **pre-convert** the XLS file to CSV on a machine with more resources, then use it directly.
+The script now uses **ssconvert (Gnumeric)** as the primary converter, which uses much less memory than LibreOffice. It will automatically try the lightweight converter first, and only fall back to LibreOffice if needed.
+
+## Automatic Lightweight Conversion
+
+The import script now:
+1. **First tries ssconvert (Gnumeric)** - Uses ~10x less memory than LibreOffice
+2. **Falls back to LibreOffice** - Only if ssconvert fails
+3. **Supports pre-converted CSV** - If you have a CSV file ready, it uses that directly
+
+This should work on your 2GB RAM server without OOM errors!
+
+---
+
+## Pre-Converting XLS to CSV (Optional)
+
+If you still want to pre-convert the file (for even faster imports), this guide shows how to do it on a machine with more resources.
 
 ## What is Pre-Converting?
 

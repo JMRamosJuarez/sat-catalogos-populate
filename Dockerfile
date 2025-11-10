@@ -18,6 +18,7 @@ RUN set -e \
         unzip git \
         xlsx2csv sqlite3 \
         php-cli php-curl php-zip php-sqlite3 php-xml \
+        gnumeric \
     && apt-get install -y --no-install-recommends \
         libreoffice-calc-nogui default-jre-headless libreoffice-java-common \
     # Clean APT

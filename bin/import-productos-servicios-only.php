@@ -9,6 +9,7 @@ use PhpCfdi\SatCatalogosPopulate\Importers\Cfdi40Catalogs;
 use PhpCfdi\SatCatalogosPopulate\Importers\Cfdi40\Injectors\ProductosServicios;
 use PhpCfdi\SatCatalogosPopulate\Injectors;
 use PhpCfdi\SatCatalogosPopulate\Converters\XlsToCsvFolderConverter;
+use PhpCfdi\SatCatalogosPopulate\Converters\XlsToCsvLightweightConverter;
 
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -95,15 +96,82 @@ $logger->info("Starting import of {$tableName}...");
 
 try {
     if (!$usePreConvertedCsv) {
-        // Convert XLS to CSV (memory-intensive - may fail with OOM)
-        $logger->info("Converting XLS to CSV (this may take a while and use significant memory)...");
-        $converter = new XlsToCsvFolderConverter();
-        $converter->convert($xlsFile, $csvFolder);
+        // Try lightweight converter first (ssconvert - uses less memory)
+        $useLightweight = false;
+        try {
+            $logger->info("Attempting lightweight conversion using ssconvert (Gnumeric)...");
+            $lightweightConverter = new XlsToCsvLightweightConverter();
+            $lightweightConverter->convertToCsvFolder($xlsFile, $csvFolder);
+            
+            // Find the CSV file with the correct headers
+            // ssconvert creates files like "Sheet1.csv", "Sheet2.csv", etc.
+            // We need to find the one that contains "c_ClaveProdServ" in the headers
+            $csvFiles = glob($csvFolder . '/*.csv') ?: [];
+            $targetCsv = $csvFolder . '/c_ClaveProdServ.csv';
+            $foundCorrectFile = false;
+            
+            if (!empty($csvFiles)) {
+                // Expected header (after skipping 3 lines)
+                $expectedHeader = 'c_ClaveProdServ';
+                
+                foreach ($csvFiles as $file) {
+                    // Check if this file has the correct header
+                    $handle = fopen($file, 'r');
+                    if ($handle) {
+                        // Skip first 3 lines (as per ProductosServicios::checkHeaders)
+                        for ($i = 0; $i < 3; $i++) {
+                            fgetcsv($handle);
+                        }
+                        // Read the header line
+                        $headerLine = fgetcsv($handle);
+                        fclose($handle);
+                        
+                        // Check if first column matches
+                        if (!empty($headerLine) && isset($headerLine[0]) && 
+                            stripos(trim($headerLine[0]), $expectedHeader) !== false) {
+                            // This is the correct file!
+                            rename($file, $targetCsv);
+                            $finalCsvFile = $targetCsv;
+                            $useLightweight = true;
+                            $foundCorrectFile = true;
+                            $logger->info("Lightweight conversion successful! Found correct sheet.");
+                            break;
+                        }
+                    }
+                }
+                
+                // If we found files but none matched, use the first one and let validation catch errors
+                if (!$foundCorrectFile && count($csvFiles) === 1) {
+                    rename($csvFiles[0], $targetCsv);
+                    $finalCsvFile = $targetCsv;
+                    $useLightweight = true;
+                    $logger->info("Lightweight conversion successful! Using single sheet (will validate headers).");
+                } elseif (!$foundCorrectFile) {
+                    throw new RuntimeException("Could not find sheet with expected headers in converted CSV files");
+                }
+            } else {
+                throw new RuntimeException("No CSV files were created by ssconvert");
+            }
+        } catch (Throwable $e) {
+            $logger->warning("Lightweight conversion failed: " . $e->getMessage());
+            $logger->info("Falling back to LibreOffice converter (may use more memory)...");
+            // Clean up any partial files
+            if (is_dir($csvFolder)) {
+                array_map('unlink', glob($csvFolder . '/*.csv') ?: []);
+            }
+        }
         
-        // Get the converted CSV file
-        $finalCsvFile = $csvFolder . '/c_ClaveProdServ.csv';
-        if (!file_exists($finalCsvFile)) {
-            throw new RuntimeException("CSV file not found after conversion: {$finalCsvFile}");
+        // If lightweight conversion didn't work, use LibreOffice (fallback)
+        if (!$useLightweight) {
+            $logger->info("Converting XLS to CSV using LibreOffice (this may require significant memory)...");
+            $converter = new XlsToCsvFolderConverter();
+            $converter->convert($xlsFile, $csvFolder);
+            
+            // Get the converted CSV file
+            $finalCsvFile = $csvFolder . '/c_ClaveProdServ.csv';
+            if (!file_exists($finalCsvFile)) {
+                throw new RuntimeException("CSV file not found after conversion: {$finalCsvFile}");
+            }
         }
     }
     // If using pre-converted CSV, $finalCsvFile is already set above
