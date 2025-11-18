@@ -1,7 +1,7 @@
 name: generate-catalogs
 
 env:
-  IMAGE_OWNER: ${{ toLower(github.repository_owner) }}
+  IMAGE_OWNER: jmramosjuarez
 
 on:
   workflow_dispatch:
