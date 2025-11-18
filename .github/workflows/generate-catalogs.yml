@@ -1,5 +1,8 @@
 name: generate-catalogs
 
+env:
+  IMAGE_OWNER: ${{ toLower(github.repository_owner) }}
+
 on:
   workflow_dispatch:
   push:
@@ -16,9 +19,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Normalize owner to lowercase
-        run: echo "IMAGE_OWNER=$(echo '${GITHUB_REPOSITORY_OWNER}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,9 +51,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Normalize owner to lowercase
-        run: echo "IMAGE_OWNER=$(echo '${GITHUB_REPOSITORY_OWNER}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
