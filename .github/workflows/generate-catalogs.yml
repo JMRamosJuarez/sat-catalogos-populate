@@ -65,15 +65,18 @@ jobs:
           IMAGE="ghcr.io/${{ env.IMAGE_OWNER }}/sat-catalogos-populate:${{ github.sha }}"
           docker pull "${IMAGE}"
           mkdir -p build/catalogs
-          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" dump-origins > build/catalogs/origins.xml
-          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" update-origins /catalogs
+          WORKDIR="$PWD/build/catalogs/work"
+          mkdir -p "${WORKDIR}"
+          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" dump-origins > "${WORKDIR}/origins.xml"
+          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" update-origins /catalogs/work
           touch build/catalogs/catalogos.db
-          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" update-database /catalogs /catalogs/catalogos.db
+          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" update-database /catalogs/work /catalogs/catalogos.db
+          rm -rf "${WORKDIR}"
 
       - name: Upload catalogs artifact
         uses: actions/upload-artifact@v4
         with:
           name: sat-catalogos
-          path: build/catalogs/
+          path: build/catalogs/catalogos.db
           if-no-files-found: error
 
