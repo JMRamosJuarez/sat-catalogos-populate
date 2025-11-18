@@ -40,6 +40,16 @@ RUN set -e \
     && composer update --no-dev --prefer-dist --optimize-autoloader --no-interaction \
     && rm -rf "$(composer config cache-dir --global)" "$(composer config data-dir --global)" "$(composer config home --global)"
 
+RUN set -e \
+    && cd /opt/sat-catalogos-populate/ \
+    && mkdir -p build/catalogs \
+    && php bin/sat-catalogos-update dump-origins > build/catalogs/origins.xml \
+    && php bin/sat-catalogos-update update-origins build/catalogs/ \
+    && touch build/catalogs/catalogos.db \
+    && php bin/sat-catalogos-update update-database build/catalogs/ build/catalogs/catalogos.db \
+    && mv build/catalogs/catalogos.db catalogos.db \
+    && rm -rf build/catalogs
+
 ENV TZ="America/Mexico_City"
 
 ENTRYPOINT ["/opt/sat-catalogos-populate/bin/sat-catalogos-update"]

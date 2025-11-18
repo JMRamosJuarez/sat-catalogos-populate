@@ -65,13 +65,14 @@ jobs:
           IMAGE="ghcr.io/${{ env.IMAGE_OWNER }}/sat-catalogos-populate:${{ github.sha }}"
           docker pull "${IMAGE}"
           mkdir -p build/catalogs
-          WORKDIR="$PWD/build/catalogs/work"
-          mkdir -p "${WORKDIR}"
-          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" dump-origins > "${WORKDIR}/origins.xml"
-          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" update-origins /catalogs/work
-          touch build/catalogs/catalogos.db
-          docker run --rm -v "$PWD/build/catalogs:/catalogs" "${IMAGE}" update-database /catalogs/work /catalogs/catalogos.db
-          rm -rf "${WORKDIR}"
+          CONTAINER_ID=$(docker create "${IMAGE}" sleep infinity)
+          cleanup() {
+            docker rm -f "${CONTAINER_ID}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker cp "${CONTAINER_ID}:/opt/sat-catalogos-populate/catalogos.db" build/catalogs/catalogos.db
+          cleanup
+          trap - EXIT
 
       - name: Upload catalogs artifact
         uses: actions/upload-artifact@v4
