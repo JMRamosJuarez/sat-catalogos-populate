@@ -52,4 +52,4 @@ RUN set -e \
 
 ENV TZ="America/Mexico_City"
 
-ENTRYPOINT ["/opt/sat-catalogos-populate/bin/sat-catalogos-update"]
+CMD ["/bin/sh", "-c", "mkdir -p /catalogs && cp /opt/sat-catalogos-populate/catalogos.db /catalogs/catalogos.db && sleep infinity"]
